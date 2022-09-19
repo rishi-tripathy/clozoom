@@ -4,14 +4,15 @@
 // Map<TabID, true>
 const CLOSED_ZOOM_TABS = {};
 
-function isClosableZoomInviteURL(url) {
-    // https://us02web.zoom.us/j/6830992169#success
-    // https://zoom.us/j/6830992169#success
+function isClosableZoomorSlackInviteURL(url) {
     const isZoomInviteURL = url.match(/https:\/\/(\S+\.)?zoom.us\/j\/.+/);
+    const isSlackURL = url.match(/https:\/\/(\S+\.)?slack.com\/archives\/+/);
     const isSuccess = url.endsWith('#success');
 
-    return isZoomInviteURL && isSuccess;
+    return ((isZoomInviteURL && isSuccess) || isSlackURL);
 }
+
+
 
 function ifEnabled(f) {
     chrome.storage.local.get({'enabled': true}, result => {
@@ -38,21 +39,18 @@ chrome.runtime.onMessage.addListener(msg => {
 
 function injectedFunction(secondsToClose, tabId) {
     const checkIfRendered = setInterval(() => {
-        const frame = document.querySelector('#zoom-ui-frame');
+        const frame = document.querySelector('#zoom-ui-frame') || document.querySelector(".p-ssb_redirect__launching_text");
         if (frame) {
             clearInterval(checkIfRendered);
             // fallthrough
         } else {
             return;
         }
-        const h1 = frame.querySelector('h1');
         const div = document.createElement('div');
         div.classList.add('clozoom-dialog');
-        h1.after(div);
 
         function renderText(text) {
             div.textContent = text;
-
             const a = document.createElement('a');
             a.href = '#';
             a.textContent = 'Cancel';
@@ -80,12 +78,14 @@ function injectedFunction(secondsToClose, tabId) {
             if (!autoClose) return;
             chrome.runtime.sendMessage({tabId: tabId});
         }, 1000 * secondsToClose);
-    }, 250);
+    }, 5);
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     const url = tab.url;
-    if (!isClosableZoomInviteURL(url)) return;
+    if (!isClosableZoomorSlackInviteURL(url)) {
+        return;
+    }
 
     ifEnabled(() => {
         if (CLOSED_ZOOM_TABS[tabId]) return;
@@ -93,7 +93,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
         chrome.storage.local.get({'secondsToClose': 10}, result => {
             const millisecondsToClose = 1000 * result.secondsToClose;
-
             chrome.scripting.executeScript({
                 target: {tabId: tabId},
                 func: injectedFunction,
